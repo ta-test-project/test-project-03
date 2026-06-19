@@ -1,0 +1,194 @@
+name: Student Refactoring Review
+
+on:
+  push:
+    branches:
+      - main
+      - 'homework-*'
+
+jobs:
+  ai_review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare Code for AI
+        run: |
+          echo "### PROJECT FILES ###" > student_code.txt
+          find src/test/java -name "*.java" -exec echo "--- FILE: {} ---" \; -exec cat {} \; >> student_code.txt
+
+      - name: Claude AI Analysis
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # 1. BUILD THE PROMPT CONTENT
+          # We'll use a python script to safely build the entire JSON payload to avoid shell quoting hell.
+          cat << 'EOF' > payload_builder.py
+          import json
+          import sys
+          import os
+
+          def build_payload():
+              with open('student_code.txt', 'r', encoding='utf-8') as f:
+                  student_code = f.read()
+
+              prompt = f"""You are a teaching assistant for a basic Java Test Automation course. 
+          Analyze the student's refactoring of the 'GreenCityValidRegistrationTest.java' project.
+
+          CRITICAL CONTEXT:
+          - Students ARE NOT familiar with the Page Object (PO) pattern yet. Do not penalize for not using it.
+          - The goal is to split the monolithic test into: Model, Repository, Service, Tests, and BaseTest layers.
+
+          YOUR TASKS:
+          1. Check if the project is correctly layered:
+             - Model: Is there a class like 'User.java'?
+             - Repository: Is there a CSV reader or data provider logic?
+             - Service: Are UI interactions moved to classes like 'RegistrationService.java'?
+             - BaseTest: Are WebDriver setups (ChromeOptions, WebDriverWait) and cleanup moved to a parent class?
+          2. Check for logic correctness:
+             - Are Explicit Waits used?
+             - Is JavaScript Click still used for the registration button?
+             - Does the test use Model objects instead of raw CSV strings?
+          3. Verification & Feedback:
+             - Determine if the code is functional (no obvious logic or import errors).
+             - Provide constructive feedback in Ukrainian language.
+
+          RESPONSE STRUCTURE:
+          - Status: [Ready / Needs Improvements]
+          - Layer Evaluation: (Model, Repository, Service, Tests, BaseTest).
+          - Positive Feedback: What the student did well.
+          - Recommendations: 3-4 specific points for improvement.
+
+          STUDENT CODE:
+          {student_code}
+          """
+              
+              data = {
+                  "model": "claude-3-5-haiku-20241022",
+                  "max_tokens": 2048,
+                  "messages": [
+                      {"role": "user", "content": prompt}
+                  ]
+              }
+              print(json.dumps(data))
+
+          if __name__ == "__main__":
+              build_payload()
+          EOF
+
+          python3 payload_builder.py > payload.json
+
+          # 2. CALL ANTHROPIC API (robust)
+          http_code=$(curl -sS -o response.json -w "%{http_code}" https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            -d @payload.json)
+
+          echo "Anthropic HTTP status: $http_code"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "Anthropic API request failed. Raw response:"
+            cat response.json
+            exit 1
+          fi
+
+          # 3. EXTRACT RESPONSE AND PRINT TO JOB SUMMARY
+          # Using a more robust parser to handle potential API errors
+          cat << 'EOF' > response_parser.py
+          import json
+          import sys
+
+          def parse_response():
+              raw = open('response.json', 'r', encoding='utf-8').read().strip()
+              try:
+                  data = json.loads(raw)
+              except Exception as e:
+                  print("### Error Parsing JSON")
+                  print(str(e))
+                  print("\nRaw response:\n" + raw)
+                  sys.exit(1)
+
+              # Expected success shape
+              if isinstance(data, dict) and "content" in data and isinstance(data["content"], list) and data["content"]:
+                  item = data["content"][0]
+                  if isinstance(item, dict):
+                      # Anthropic commonly returns {"type":"text","text":"..."}
+                      text = item.get("text")
+                      if text:
+                          print(text)
+                          return
+
+              # Common error shape
+              if isinstance(data, dict) and "error" in data:
+                  print("### API Error")
+                  print(json.dumps(data["error"], indent=2, ensure_ascii=False))
+                  sys.exit(1)
+
+              # Anything else: show it for debugging
+              print("### Unexpected Response")
+              print(json.dumps(data, indent=2, ensure_ascii=False))
+              sys.exit(1)
+
+          if __name__ == "__main__":
+              parse_response()
+          EOF
+
+          echo "### Claude AI Feedback" >> $GITHUB_STEP_SUMMARY
+          python3 response_parser.py >> $GITHUB_STEP_SUMMARY
+          
+          # 4. POST FEEDBACK AS COMMIT COMMENT
+          python3 response_parser.py > ai_feedback.txt
+          # Use the GitHub API to post a commit comment
+          # Note: We need to escape the content for the GitHub API JSON payload
+          cat << 'EOF' > comment_poster.py
+          import json
+          import os
+          import requests
+          
+          def post_comment():
+              feedback_file = 'ai_feedback.txt'
+              if not os.path.exists(feedback_file):
+                  return
+              
+              with open(feedback_file, 'r', encoding='utf-8') as f:
+                  feedback = f.read()
+              
+              token = os.getenv('GITHUB_TOKEN')
+              repo = os.getenv('GITHUB_REPOSITORY')
+              sha = os.getenv('GITHUB_SHA')
+              
+              if not all([token, repo, sha]):
+                  print("Missing environment variables for posting comment")
+                  return
+              
+              url = f"https://api.github.com/repos/{repo}/commits/{sha}/comments"
+              headers = {
+                  "Authorization": f"token {token}",
+                  "Accept": "application/vnd.github.v3+json"
+              }
+              payload = {
+                  "body": f"### 🤖 AI Code Review\n\n{feedback}"
+              }
+              
+              response = requests.post(url, headers=headers, json=payload)
+              if response.status_code == 201:
+                  print("Comment posted successfully")
+              else:
+                  print(f"Failed to post comment: {response.status_code}")
+                  print(response.text)
+          
+          if __name__ == "__main__":
+              post_comment()
+          EOF
+          
+          pip install requests
+          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} GITHUB_REPOSITORY=$GITHUB_REPOSITORY GITHUB_SHA=$GITHUB_SHA python3 comment_poster.py
+
+          # ALSO PRINT TO LOGS
+          python3 response_parser.py
