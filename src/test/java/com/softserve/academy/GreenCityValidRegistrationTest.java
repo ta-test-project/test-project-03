@@ -93,6 +93,7 @@ class GreenCityValidRegistrationTest {
         if (btnSubmit.isEnabled()) {
             ((JavascriptExecutor) driver).executeScript("arguments[0].click();", btnSubmit);
         }
+
     }
 
     private void verifySuccessRegistration() {
