@@ -7,7 +7,6 @@ import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-
 import com.softserve.academy.service.BasePage;
 import com.softserve.academy.service.RegistrationData;
 
@@ -25,8 +24,6 @@ public class RegistrationModal extends BasePage {
     private final By errorNameField = By.xpath("//input[@id='firstName']/following-sibling::div");
     private final By passwordErrorField = By.className("password-not-valid");
     private final By confirmPasswordErrorField = By.id("confirm-err-msg");
-
-
 
     public RegistrationModal(WebDriver driver, WebDriverWait wait) {
         super(driver, wait);
@@ -94,5 +91,4 @@ public class RegistrationModal extends BasePage {
         return error.getText().toLowerCase().contains("required") ||
                 error.getText().toLowerCase().contains("match");
     }
-
 }
