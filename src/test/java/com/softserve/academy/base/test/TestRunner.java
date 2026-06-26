@@ -16,14 +16,11 @@ import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.util.Date;
 
-@ExtendWith(com.softserve.academy.service.RunnerExtensions.class)
 public abstract class TestRunner {
 
     protected static final String BASE_URL = "https://www.greencity.cx.ua/#/greenCity";
     protected static WebDriver driver;
     protected static WebDriverWait wait;
-    private static JavascriptExecutor js;
-
     public boolean isTestSuccessful;
 
     @BeforeAll
@@ -39,7 +36,6 @@ public abstract class TestRunner {
         driver = new ChromeDriver(options);
         driver.manage().window().maximize();
         wait = new WebDriverWait(driver, Duration.ofSeconds(10));
-        js = (JavascriptExecutor) driver;
     }
 
     @BeforeEach
@@ -53,7 +49,6 @@ public abstract class TestRunner {
         if (!isTestSuccessful) {
             takeScreenshot(testInfo.getDisplayName());
         }
-
     }
 
     @AfterAll
@@ -64,13 +59,13 @@ public abstract class TestRunner {
     }
 
     private void takeScreenshot(String testName) {
-        String time = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SSS" ).format(new Date());
+        String time = new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SSS").format(new Date());
         try {
             File screenshotFile = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
             Path dir = Paths.get("target", "screenshots");
             //Create directories if they don't exist
             Files.createDirectories(dir);
-            Files.copy(screenshotFile.toPath(), dir.resolve(time + sanitizeFileName(testName)+ ".png"));
+            Files.copy(screenshotFile.toPath(), dir.resolve(time + sanitizeFileName(testName) + ".png"));
         } catch (IOException e) {
             System.err.println("Failed to capture screenshot: " + e.getMessage());
         }
@@ -78,9 +73,5 @@ public abstract class TestRunner {
 
     private String sanitizeFileName(String name) {
         return name.replaceAll("[^a-zA-Z0-9-_]", "_");
-    }
-
-    public void blur() {
-        js.executeScript("document.activeElement.blur();");
     }
 }

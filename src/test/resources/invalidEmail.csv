@@ -1,6 +1,0 @@
-email, name, password, confirmPassword
-"invalid-email", "ValidUser", "123456Aa!", "123456Aa!"
-"123@123.123", "ValidUser", "123456Aa!", "123456Aa!"
-"iryna m2@gmail.com", "ValidUser", "123456Aa!", "123456Aa!"
-"iryna.m@com", "ValidUser", "123456Aa!", "123456Aa!"
-"iryna.m2@gmail", "ValidUser", "123456Aa!", "123456Aa!"
